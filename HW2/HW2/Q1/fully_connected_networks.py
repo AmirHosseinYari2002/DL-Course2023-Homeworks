@@ -421,8 +421,13 @@ class FullyConnectedNet(object):
         # centered at 0 with standard deviation equal to weight_scale. Biases #
         # should be initialized to zero.                                      #
         #######################################################################
-        # Replace "pass" statement with your code
-        pass
+        for i in range(1, self.num_layers + 1):
+            in_dim = input_dim if i == 1 else hidden_dims[i - 2]
+            out_dim = num_classes if i == self.num_layers else hidden_dims[i - 1]
+
+            # Initialize weights and biases
+            self.params[f'W{i}'] = weight_scale * torch.randn(in_dim, out_dim, dtype=dtype, device=device)
+            self.params[f'b{i}'] = torch.zeros(out_dim, dtype=dtype, device=device)
         #######################################################################
         #                         END OF YOUR CODE                            #
         #######################################################################
@@ -485,8 +490,28 @@ class FullyConnectedNet(object):
         # When using dropout, you'll need to pass self.dropout_param     #
         # to each dropout forward pass.                                  #
         ##################################################################
-        # Replace "pass" statement with your code
-        pass
+        layer_input = X
+        layer_caches = []
+
+        for i in range(1, self.num_layers):
+            # Linear layer
+            W, b = self.params[f'W{i}'], self.params[f'b{i}']
+            layer_input, cache = Linear.forward(layer_input, W, b)
+            layer_caches.append(cache)
+
+            # ReLU layer
+            layer_input, relu_cache = ReLU.forward(layer_input)
+            layer_caches.append(relu_cache)
+
+            # Dropout layer (if applicable)
+            if self.use_dropout:
+                layer_input, dropout_cache = Dropout.forward(layer_input, self.dropout_param)
+                layer_caches.append(dropout_cache)
+
+        # Last linear layer
+        W, b = self.params[f'W{self.num_layers}'], self.params[f'b{self.num_layers}']
+        scores, scores_cache = Linear.forward(layer_input, W, b)
+        layer_caches.append(scores_cache)
         #################################################################
         #                      END OF YOUR CODE                         #
         #################################################################
@@ -507,8 +532,42 @@ class FullyConnectedNet(object):
         # includes a factor of 0.5 to simplify the expression for           #
         # the gradient.                                                     #
         #####################################################################
-        # Replace "pass" statement with your code
-        pass
+        # Compute softmax loss
+        data_loss, dscores = softmax_loss(scores, y)
+
+        # Add regularization loss
+        reg_loss = 0.0
+        for i in range(1, self.num_layers + 1):
+            W = self.params[f'W{i}']
+            reg_loss += 0.5 * self.reg * torch.sum(W**2)
+
+        # Total loss
+        loss = data_loss + reg_loss
+
+        # Backward pass
+        dout = dscores
+        for i in range(self.num_layers, 0, -1):
+            W, b = self.params[f'W{i}'], self.params[f'b{i}']
+
+            # Last linear layer
+            if i == self.num_layers:
+                dout, dW, db = Linear.backward(dout, layer_caches.pop())
+            else:
+                # Dropout layer (if applicable)
+                if self.use_dropout:
+                    dout = Dropout.backward(dout, layer_caches.pop())
+
+                # ReLU layer
+                dout = ReLU.backward(dout, layer_caches.pop())
+
+                # Linear layer
+                dout, dW, db = Linear.backward(dout, layer_caches.pop())
+
+            # Add regularization gradient
+            dW += self.reg * W
+
+            grads[f'W{i}'] = dW
+            grads[f'b{i}'] = db
         ###########################################################
         #                   END OF YOUR CODE                      #
         ###########################################################
@@ -526,7 +585,7 @@ def create_solver_instance(data_dict, dtype, device):
     solver = Solver(model, data_dict,
                     update_rule=sgd,
                     optim_config={
-                        'learning_rate': 1e-3,
+                        'learning_rate': 0.01,
                     },
                     lr_decay=0.95,
                     num_epochs=15,
@@ -543,8 +602,8 @@ def get_three_layer_network_params():
     # TODO: Change weight_scale and learning_rate so your         #
     # model achieves 100% training accuracy within 20 epochs.     #
     ###############################################################
-    weight_scale = 1e-2   # Experiment with this!
-    learning_rate = 1e-4  # Experiment with this!
+    weight_scale = 5e-2   # Experiment with this!
+    learning_rate = 0.5  # Experiment with this!
     ################################################################
     #                             END OF YOUR CODE                 #
     ################################################################
@@ -556,8 +615,8 @@ def get_five_layer_network_params():
     # TODO: Change weight_scale and learning_rate so your          #
     # model achieves 100% training accuracy within 20 epochs.      #
     ################################################################
-    learning_rate = 2e-3  # Experiment with this!
-    weight_scale = 1e-5   # Experiment with this!
+    learning_rate = 1e-2  # Experiment with this!
+    weight_scale = 0.4   # Experiment with this!
     ################################################################
     #                       END OF YOUR CODE                       #
     ################################################################
@@ -600,8 +659,9 @@ def sgd_momentum(w, dw, config=None):
     # updated value in the next_w variable. You should also use and  #
     # update the velocity v.                                         #
     ##################################################################
-    # Replace "pass" statement with your code
-    pass
+    # Momentum update
+    v = config['momentum'] * v - config['learning_rate'] * dw
+    next_w = w + v
     ###################################################################
     #                           END OF YOUR CODE                      #
     ###################################################################
@@ -634,8 +694,9 @@ def rmsprop(w, dw, config=None):
     # in the next_w variable. Don't forget to update cache value stored in    #
     # config['cache'].                                                        #
     ###########################################################################
-    # Replace "pass" statement with your code
-    pass
+    # RMSprop update
+    config['cache'] = config['decay_rate'] * config['cache'] + (1 - config['decay_rate']) * dw**2
+    next_w = w - config['learning_rate'] * dw / (torch.sqrt(config['cache']) + config['epsilon'])
     ###########################################################################
     #                             END OF YOUR CODE                            #
     ###########################################################################
@@ -675,8 +736,13 @@ def adam(w, dw, config=None):
     # NOTE: In order to match the reference output, please modify t _before_ #
     # using it in any calculations.                                          #
     ##########################################################################
-    # Replace "pass" statement with your code
-    pass
+    # Adam update
+    config['t'] += 1
+    config['m'] = config['beta1'] * config['m'] + (1 - config['beta1']) * dw
+    config['v'] = config['beta2'] * config['v'] + (1 - config['beta2']) * (dw**2)
+    m_hat = config['m'] / (1 - config['beta1']**config['t'])
+    v_hat = config['v'] / (1 - config['beta2']**config['t'])
+    next_w = w - config['learning_rate'] * m_hat / (torch.sqrt(v_hat) + config['epsilon'])
     #########################################################################
     #                              END OF YOUR CODE                         #
     #########################################################################
@@ -728,8 +794,8 @@ class Dropout(object):
             # inverted dropout.                                          #
             # Store the dropout mask in the mask variable.               #
             ##############################################################
-            # Replace "pass" statement with your code
-            pass
+            mask = (torch.rand_like(x) > p).float() / (1 - p)
+            out = x * mask
             ##############################################################
             #                   END OF YOUR CODE                         #
             ##############################################################
@@ -738,8 +804,7 @@ class Dropout(object):
             # TODO: Implement the test phase forward pass for            #
             # inverted dropout.                                          #
             ##############################################################
-            # Replace "pass" statement with your code
-            pass
+            out = x
             ##############################################################
             #                      END OF YOUR CODE                      #
             ##############################################################
@@ -765,8 +830,7 @@ class Dropout(object):
             # TODO: Implement training phase backward pass for        #
             # inverted dropout                                        #
             ###########################################################
-            # Replace "pass" statement with your code
-            pass
+            dx = dout * mask
             ###########################################################
             #                     END OF YOUR CODE                    #
             ###########################################################
